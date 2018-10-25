@@ -1,7 +1,7 @@
-﻿"PRODUCT_ID;PRODUCT_GROUP;PRODUCT_FAMILY;PRODUCT_CATEGORY;PRODUCT_NAME;PRODUCT_DESCRIPTION;PRICE"
-"1017;Toaster;Utensil;Household appliances;Roast-a-lot XL;Extra large toaster for 8 pieces of bread;400"
-"1023;Toaster;Utensil;Household appliances;Toastmaster 500;Toaster in retro design for 2 pieces of bread;500"
-"1298;Whisk;Utensil;Household appliances;Electroflux W102;Whisk;300"
-"5980;Stove;Stove;Kitchen wares;ACME BL1305;Energy saving stove;5000"
-"6501;Dishwasher;Dishwasher;Kitchen wares;Electroflux DX100;Efficient dishwasher ;4500"
-"8934;Vaccumcleaner;Cleaning;Household appliances;Dustbuster;Nice and quiet vaccum cleaner;1500"
+PRODUCT_ID;PRODUCT_GROUP;PRODUCT_FAMILY;PRODUCT_CATEGORY;PRODUCT_NAME;PRODUCT_DESCRIPTION;PRICE
+1017;Toaster;Utensil;Household appliances;Roast-a-lot XL;Extra large toaster for 8 pieces of bread;400
+1023;Toaster;Utensil;Household appliances;Toastmaster 500;Toaster in retro design for 2 pieces of bread;500
+1298;Whisk;Utensil;Household appliances;Electroflux W102;Whisk;300
+5980;Stove;Stove;Kitchen wares;ACME BL1305;Energy saving stove;5000
+6501;Dishwasher;Dishwasher;Kitchen wares;Electroflux DX100;Efficient dishwasher ;4500
+8934;Vaccumcleaner;Cleaning;Household appliances;Dustbuster;Nice and quiet vaccum cleaner;1500
