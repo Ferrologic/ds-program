@@ -1,0 +1,369 @@
+---
+title: "BLOCK 4: GRADIENT BOOSTING & RANDOM FORREST"
+author: "Niklas Johnson & Helena Ahlin"
+date: '2018-12-19'
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Du arbetar som data scientist på ett företag som erbjuder krediter till privatpersoner, främst till antingen husrenovering och skuldkonsolidering. Ni har i olika rapporter sett att många låntagare ej betalar sina lån, och nu vill du bygga en modell för att prediktera om en ny låntagare kommer att betala sitt lån eller inte. Till ditt förfogande har du följande data:
+
+
+
+Kolumnnamn        | Beskrivning                       
+------------------|-------------------------------------
+ID                | Låntagarens ID-nummer               
+Target	          | Responsvariabel                     
+.                 |   *1 = Har ej betalat*              
+.                 |   *0 = Har betalat*                 
+LanPerManad       |	Summa som ska betalas per månad              
+TotaltLan	        | Total lånesumma, befintligt lån     
+Fastighetsvarde	  | Fastighetens värde                  
+Anledning	        | Bakgrund till lån                   
+.                 |   *DebtCon = skuldkonsolidering*  
+.                 |   *HomeImp = Renovering*            
+Arbete        	  | Typ av arbete                       
+ArPaArbete	      | Antal år hos nuvarande arbetsgivare 
+NBetAnmark	      | Antal betalningsanmärkningar        
+NForsenBetal	    | Antal försenade betalningar         
+KreditAlder	      | Äldsta kreditens ålder              
+NKreditprovningar	| Antal kreditprövningar senaste året 
+NKrediter	        | Antal krediter
+KvotKreditInk	    | Kvot mellan kredit och inkomst
+NBetAnmark01	    | Dikotomisering av NBetAnmark: 
+.                 |   *0 = Inga betalningsanmärkningar*
+.                 |   *1 = Betalningsanmärkningar*
+NForsenBetal01	  | Dikotomisering av NForsenBetal:
+.                 |   *0 = Inga försenade betalningar*
+.                 |   *1 = Försenade betalningar*
+NKreditprovGrupp	| Grupperad antal kreditprövningar
+.                 |   *0 = Inga kreditprövningar*
+.                 |   *1 = *
+.                 |   *2 = *
+
+
+Det är samma fil som vi använde under dag 2 på Block 3, då vi tog fram beslutsträd och jämförde modeller. 
+
+
+
+## Förberedelser
+
+### Installera och ladda paket
+```{r}
+install.packages("pacman")
+library(pacman)
+p_load(caret, tidyverse, Metrics)
+```
+
+
+### Läs in data
+Börja med att läsa in data genom att utnyttja funktionen `read_delim()` som finns i paketet `readr`. `read_delim()` fungerar på filer där du har en speciell separator, exempelvis `";"`. `read_csv` fungerar för filer med "," som separator. Det finns lite olika alternativ till encoding. Testa att läsa in filerna utan att ange encoding och se om all text ser bra ut. Om inte kan du testa `"mac"`, `"utf-8"`, `"ansii"`, `"windows-1252"`.
+Du hittar tabellen här: https://github.com/Ferrologic/ds-program/tree/master/block3. 
+ 
+Klicka på länken, därefter på filen och sedan på `Raw`. Markera och kopiera in länken i `read_delim()` nedan så slipper ni lagra csv-filen på datorn, ni läser in den direkt från github. 
+ 
+```{r import}
+library(tidyverse)
+Lånedata <- read_delim("https://raw.githubusercontent.com/Ferrologic/ds-program/master/block3/Lanedata.csv", delim = ";")
+```
+
+
+## Partitionera data (om du inte har det sparat sedan tidigare)
+Nu ska vi försöka bygga en modell som generaliserar på nytt data. Det första steget är att partitionera upp datat i 2 delar. Den första delen representerar ditt Träning OCH Validieringsdata som du använder för att träna modellen (träningsdata) och optimera modellens hyperparametrar (valideringsdata). Spliten mellan träning och validering hanteras av R, därför behöver vi endast partitionera datat i 2 delar. 
+
+Den andra delen representerar ditt test data som du slutligen använder för att göra ett oberoende prestandatest av modellen (utifrån ett modelleringsperspektiv). I vissa fall kan man vilja ta fram ett out of sample / out of time dataset som representerar test data.  
+
+Innan vi partitionerar datat behöver vi dock skapa en factor-variabel. Detta eftersom funktionen för gradient boosting-modeller kräver att responsvariabeln är av typen faktor. En faktor i R är är en variabel som kan anta ett begränsat antal värden. För en jämförelse av olika datatyper i R, se <https://www.statmethods.net/input/datatypes.html>.
+
+Skapa en faktorvariabel som antar värdena "yes" och "no" genom att exekvera koden nedan innan du 
+
+```{r}
+
+library(caret)
+set.seed(12345) # använd set.seed() för att hela tiden få samma uppdelning och därmed reproducerbara resultat
+
+Lånedata <- Lånedata %>%
+  mutate(
+    Target_factor = as.factor(ifelse(TARGET == 1, "yes", "no"))
+  )
+
+trainIndex <- createDataPartition(Lånedata$TARGET, 
+                                  p = 0.7,
+                                  list = FALSE,
+                                  times = 1)
+Train <- (Lånedata[ trainIndex,])
+Test  <- (Lånedata[ -trainIndex,])
+```
+
+
+## Gradient boosing
+
+Du har tidigare byggt både beslutsträd och logistisk regression. För att eventuellt förbättra den prediktiva förmågan ytterligare testar vi att bygga en gradient-boosting-modell med hjälp av ”caret”-paketet. Ladda även in paketet ”Metrics”. 
+
+Gradient boosting är en kraftfull algorithm som försöker bygga en stark modell genom att sekventiellt bygga många små (svagare) träd. Varje nytt träd byggs för att kompensera för modellens tidigare brister (minska bias). Denna metod är kraftfull och vinner ofta flera tävlingar inom data science. Dock upplevs den ofta som svår att använda då valet av olika hyperparametrar är stort. Därför ska vi träna på att bygga en gradient boosting modell och skruva på modellens hyperparametrarna för att säkerställa att vi får ut så mycket kraft som möjligt av modellen. 
+
+Vi ska nu sätta de parametrar vi behöver använda för att bygga modellen. 
+
+Steg 1: 
+Börja med en learning rate (shrinkage) på 0.1-0.2 och 100 träd. Detta för att möjliggöra snabbare experimentering av olika hyperparametrar
+
+Steg 2: 
+Testa olika värden för olika hyperparametrar. När du har identifierat några parametrar som ökar din prediktiva förmåga på ditt valideringsdata, gå vidare till steg 3.
+
+Steg 3: 
+Ändra parametrarna till det som gav bäst resultat i steg 2. Minska learning rate (shrinkage) till 0.01 och öka antalet träd till 1000+
+Utvärdera resultatet. 
+
+
+```{r}
+# För att funktionen ska starta, och för att vi ska kunna generera om exakt samma resultat behöver vi sätta ett frö som startar själva randomiseringen till de två olika dataseten.
+set.seed(123)  
+
+
+# Specificerar type of resampling
+fitControl <- trainControl(method = 'cv', 
+                           number = 3,         
+                           classProbs = TRUE,
+                           summaryFunction=twoClassSummary)
+
+
+# Specificerar grid search - Testa att bygga en modell med olika parametrar
+grid <- expand.grid(
+        n.trees = seq(100),          # Antal träd 
+        interaction.depth = c(5, 10),    # Antal blad på träden för att genomföra en split. 
+        shrinkage = 0.1,              # storlek på steg per iteration, börja med ca 0,1 vid parameter tuning
+        n.minobsinnode = c(1, 10))        # minimum antal observationer för att genomföra en split
+
+
+```
+
+Anpassning av själva modellen
+
+
+```{r}
+
+
+# Anpassning av modellen
+gbm_model <- train(Target_factor ~ LanPerManad+TotaltLan+Fastighetsvarde+Arbete+ArPaArbete+NBetAnmark01+NForsenBetal01,
+                   data=Train,                   # dataset
+                   method = 'gbm',               # gbm = gradient boosting
+                   trControl=fitControl,         # Spec för antal träd mm
+                   tuneGrid=grid,                # Input till tuning
+                   metric='ROC')                 # Mått
+
+
+```
+
+
+Resultat. Vad är det vi får ut? Vad säger de olika delarna?
+
+```{r}
+# Skriv ut modellinformation. För att se vilken information som finns tillgänglig, använd funktionen attributes:
+attributes(gbm_model)
+print(gbm_model$finalModel)
+summary(gbm_model)
+```
+
+
+
+
+
+```{r}
+# Plotta modellen
+plot(gbm_model)
+      
+
+# Accuracy-mått      
+gbmPred <-  predict(gbm_model, newdata=Test, type="raw")
+misclagbm <- mean(gbmPred != Test$Target_factor, na.rm=TRUE)
+print(paste('Accuracy',1-misclagbm))
+      
+```
+      
+      
+      
+```{r}
+#Snabb utvärdering på Testdata
+#Confusion matrix på testdata
+predictions_test<-predict(gbm_model, type="prob", Test) 
+
+# Scora på testdataset
+head(predictions_test[,"yes"])
+predictions_adj <- ifelse(predictions_test$yes>=0.5,'yes','no')
+predictions_adj <- as.factor(predictions_adj) 
+conf_mtrx_test <-  confusionMatrix(predictions_adj, as.factor(Test$Target_factor)) 
+
+# Ta fram confusion  matrix
+print(conf_mtrx_test)
+
+
+#ROC & AUC värde för test
+library(ROCR)
+pred_test <- prediction(predictions_test$yes, Test$Target_factor, 
+                        label.ordering = NULL) 
+#skapa prediction object 
+roc.perf_test = performance(pred_test, measure = "tpr", x.measure = "fpr")
+plot(roc.perf_test)
+
+auc <- as.numeric(performance(pred_test,"auc")@y.values) 
+#räkna ut AUC
+print(auc)
+```
+      
+
+```{r}
+
+# Skapa LEARNING CURVES för att analysera variance bias tradeoff
+# Initiera parametrar för learning curve 
+
+antal_delar <- 30 # manuellt: specificera hur många modeller vi ska bygga (varje modell byggs med olika mängd data-samples)
+
+antal_obs <- nrow(Train) 
+increment <- antal_obs/antal_delar
+testLabels <- Test$Target_factor # Initiera innan loop vektor med responser
+
+
+
+
+# Uppdata med optimala parametrar
+  grid <- expand.grid(
+          n.trees = seq(1000),          # Antal träd 
+          interaction.depth = c(10),  # Antl blad på träd
+          shrinkage = 0.1,          # Learning rate 
+          n.minobsinnode = c(1)
+          )     
+
+
+
+```
+
+
+
+
+
+
+```{r}
+
+# Skapa en tom learning curve
+  learningcurve <- data.frame(n_samples = integer(antal_delar),
+                            train_cost = integer(antal_delar),
+                            cv_cost = integer(antal_delar))
+
+View(learningcurve)
+print(antal_obs)
+
+
+for (i in seq(increment, antal_obs, increment)){
+  
+    gbm_model <- train(Target_factor ~ LanPerManad + TotaltLan + NForsenBetal01 + NBetAnmark01, # responsvariabel + prediktorer
+                       data=Train[1:i,],              # data
+                       method = 'gbm',                # metod, i detta fal gradient boosting
+                       trControl=fitControl,          # Spec för antal tr?äd mm
+                       tuneGrid=grid,
+                       #bag.fraction,
+                       metric='ROC',
+                       train.fraction = 0.7,
+                       bag.fraction = 1, # 
+                       distribution = 'bernoulli')
+  
+     # gbm_model
+     #summary(gbm_model)
+  
+     learningcurve$n_samples[i/increment] <- i
+  
+     learningcurve$train_cost[i/increment] <- max(gbm_model$results$ROC)   
+  
+    
+     # applicera tr?nad modell på test data och räkna ut AUC 
+     predictions_test<-predict(gbm_model, type="prob", Test) 
+  
+     pred_test <- prediction(predictions_test$yes, 
+                             Test$Target_factor, 
+                             label.ordering =NULL) #skapa prediction object 
+  
+     learningcurve$cv_cost[i/increment]  <- as.numeric(performance(pred_test,"auc")@y.values) # räkna ut AUC 
+  
+    
+} 
+
+```
+
+
+
+
+
+```{r}
+View (learningcurve)
+```
+
+```{r}
+plot(learningcurve$train_cost,type = "o",
+     ylim=c(0,1),col = "red", 
+     xlab = "Training set size",  
+     ylab = "AUC score", 
+     main = "GBM 
+     Learning Curve") 
+
+
+lines(learningcurve$cv_cost, 
+    type = "o", 
+    col = "blue") 
+
+legend('topright',
+      c("Train error", "Test error"), 
+      lty = c(1,1), 
+      lwd = c(2.5, 2.5),
+               col = c("red", "blue"))
+```
+
+
+
+
+
+
+
+#### RANDOM FOREST 
+
+Testa nu bygga en random forest model som parallellt försöker bygga ett högt antal korrelerade träd med varandra. Slutprediktion skapas sedan genom en majority vote, alltså genom att väga samman alla enskilda träds prediktion för att se vilken prediktion som får flest röster.
+
+
+
+```{r}
+set.seed(123)  
+
+library(caret)
+library(ROCR)
+
+
+# Specificerar type of resampling
+  rfControl <- trainControl(method = 'cv', 
+                             number = 5,         
+                             classProbs = TRUE,
+                             summaryFunction=twoClassSummary)
+
+
+
+rf_modell <- train(Target_factor ~. -TARGET - ID,
+                   data = Train,
+                   method = 'rf',
+                   trControl = rfControl,
+                   prox=TRUE,
+                   allowParallel=TRUE)
+
+print(rf_modell)
+print(rf_modell$finalModel)
+plot(rf_modell)
+
+# Accuracy
+rfPred <-  predict(rf_modell, newdata=Test, type="raw")
+micslarf <- mean(rfPred != Test$Target_factor, na.rm=TRUE)
+print(paste('Accuracy',1-micslarf))
+ 
+```
+
+
